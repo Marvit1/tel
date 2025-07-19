@@ -1,3 +1,11 @@
+# Fix for missing imghdr module in newer Python versions
+import sys
+if sys.version_info >= (3, 11):
+    import types
+    imghdr = types.ModuleType('imghdr')
+    imghdr.what = lambda file, h=None: None
+    sys.modules['imghdr'] = imghdr
+
 import asyncio
 import logging
 import os
@@ -117,36 +125,39 @@ class TelegramNotifier:
         except Exception as e:
             logger.error(f"❌ Telegram ծանուցման սխալ: {e}")
 
-    @sync_to_async
-    def get_stats_data(self):
-        """Get statistics data via API"""
+    async def get_stats_data(self):
+        """Get statistics data via API - Now fully async"""
         try:
-            # Try to get stats from API
-            response = requests.get(f"{API_BASE_URL}/api/stats/", timeout=10)
-            if response.status_code == 200:
-                return response.json()
+            # Use aiohttp for async HTTP requests
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                # Try to get stats from API
+                async with session.get(f"{API_BASE_URL}/api/stats/", timeout=10) as response:
+                    if response.status == 200:
+                        return await response.json()
         except Exception as e:
             logger.warning(f"API stats request failed: {e}")
         
         # Try to get stats from articles endpoint
         try:
-            response = requests.get(f"{API_BASE_URL}/api/articles/", timeout=10)
-            if response.status_code == 200:
-                articles_data = response.json()
-                # Calculate basic stats from articles data
-                total_articles = len(articles_data) if isinstance(articles_data, list) else 0
-                
-                # Get keywords count
-                keywords_response = requests.get(f"{API_BASE_URL}/api/keywords/", timeout=10)
-                total_keywords = len(keywords_response.json()) if keywords_response.status_code == 200 else 0
-                
-                return {
-                    'articles_24h': 0,  # We can't calculate this without timestamps
-                    'articles_week': 0,  # We can't calculate this without timestamps
-                    'total_articles': total_articles,
-                    'total_keywords': total_keywords,
-                    'top_sources': []
-                }
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{API_BASE_URL}/api/articles/", timeout=10) as response:
+                    if response.status == 200:
+                        articles_data = await response.json()
+                        total_articles = len(articles_data) if isinstance(articles_data, list) else 0
+                        
+                        # Get keywords count
+                        async with session.get(f"{API_BASE_URL}/api/keywords/", timeout=10) as keywords_response:
+                            total_keywords = len(await keywords_response.json()) if keywords_response.status == 200 else 0
+                        
+                        return {
+                            'articles_24h': 0,  # We can't calculate this without timestamps
+                            'articles_week': 0,  # We can't calculate this without timestamps
+                            'total_articles': total_articles,
+                            'total_keywords': total_keywords,
+                            'top_sources': []
+                        }
         except Exception as e:
             logger.warning(f"API articles/keywords request failed: {e}")
         
@@ -155,28 +166,32 @@ class TelegramNotifier:
             from main.models import NewsArticle, Keyword
             from django.db.models import Count
             
-            # Statistics for last 24 hours
-            last_24h = timezone.now() - timedelta(hours=24)
-            last_week = timezone.now() - timedelta(days=7)
+            # Use sync_to_async for Django ORM calls
+            @sync_to_async
+            def get_django_stats():
+                last_24h = timezone.now() - timedelta(hours=24)
+                last_week = timezone.now() - timedelta(days=7)
+                
+                articles_24h = NewsArticle.objects.filter(created_at__gte=last_24h).count()
+                articles_week = NewsArticle.objects.filter(created_at__gte=last_week).count()
+                total_articles = NewsArticle.objects.count()
+                total_keywords = Keyword.objects.count()
+                
+                # Get most active sources
+                top_sources = list(NewsArticle.objects.filter(created_at__gte=last_week)
+                                  .values('source_url')
+                                  .annotate(count=Count('id'))
+                                  .order_by('-count')[:5])
+                
+                return {
+                    'articles_24h': articles_24h,
+                    'articles_week': articles_week,
+                    'total_articles': total_articles,
+                    'total_keywords': total_keywords,
+                    'top_sources': top_sources
+                }
             
-            articles_24h = NewsArticle.objects.filter(created_at__gte=last_24h).count()
-            articles_week = NewsArticle.objects.filter(created_at__gte=last_week).count()
-            total_articles = NewsArticle.objects.count()
-            total_keywords = Keyword.objects.count()
-            
-            # Get most active sources
-            top_sources = list(NewsArticle.objects.filter(created_at__gte=last_week)
-                              .values('source_url')
-                              .annotate(count=Count('id'))
-                              .order_by('-count')[:5])
-            
-            return {
-                'articles_24h': articles_24h,
-                'articles_week': articles_week,
-                'total_articles': total_articles,
-                'total_keywords': total_keywords,
-                'top_sources': top_sources
-            }
+            return await get_django_stats()
         except Exception as e:
             logger.error(f"All methods failed: {e}")
             return {
@@ -187,14 +202,10 @@ class TelegramNotifier:
                 'top_sources': []
             }
 
-    def handle_stats_command(self, update, context):
-        """Handle /stats command"""
+    async def handle_stats_command(self, update, context):
+        """Handle /stats command - Now fully async"""
         try:
-            # Run async function in sync context
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            stats_data = loop.run_until_complete(self.get_stats_data())
+            stats_data = await self.get_stats_data()
             
             stats_message = f"""📊 Վիճակագրություն
 
@@ -211,180 +222,162 @@ class TelegramNotifier:
                 source_name = self._extract_source_name(source['source_url'])
                 stats_message += f"\n  • {source_name}: {source['count']} հոդված"
 
-            update.message.reply_text(stats_message)
+            await update.message.reply_text(stats_message)
             
         except Exception as e:
-            update.message.reply_text(f"❌ Սխալ: {str(e)}")
-        finally:
-            try:
-                loop.close()
-            except:
-                pass
+            await update.message.reply_text(f"❌ Սխալ: {str(e)}")
 
-    @sync_to_async
-    def get_keywords_data(self):
-        """Get keywords data via API"""
+    async def get_keywords_data(self):
+        """Get keywords data via API - Now fully async"""
         try:
-            # Try to get keywords from API
-            response = requests.get(f"{API_BASE_URL}/api/keywords/", timeout=10)
-            if response.status_code == 200:
-                return response.json()
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{API_BASE_URL}/api/keywords/", timeout=10) as response:
+                    if response.status == 200:
+                        return await response.json()
         except Exception as e:
             logger.warning(f"API keywords request failed: {e}")
         
         # Fallback to Django models if available
         try:
             from main.models import Keyword
-            return list(Keyword.objects.all())
+            
+            @sync_to_async
+            def get_django_keywords():
+                return list(Keyword.objects.all())
+            
+            return await get_django_keywords()
         except Exception as e:
             logger.error(f"Both API and Django models failed: {e}")
             return []
 
-    def handle_keywords_command(self, update, context):
-        """Handle /keywords command"""
+    async def handle_keywords_command(self, update, context):
+        """Handle /keywords command - Now fully async"""
         try:
-            # Run async function in sync context
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            keywords = loop.run_until_complete(self.get_keywords_data())
+            keywords = await self.get_keywords_data()
             
             if not keywords:
-                update.message.reply_text("❌ Բանալի բառեր չկան")
+                await update.message.reply_text("❌ Բանալի բառեր չկան")
                 return
             
             keywords_text = "🔑 Ընթացիկ բանալի բառեր:\n\n"
             for i, keyword in enumerate(keywords, 1):
-                keywords_text += f"{i}. {keyword.word}\n"
+                keyword_text = keyword.word if hasattr(keyword, 'word') else keyword
+                keywords_text += f"{i}. {keyword_text}\n"
             
             keywords_text += f"\n📝 Ընդհանուր: {len(keywords)} բանալի բառ"
             
-            update.message.reply_text(keywords_text)
+            await update.message.reply_text(keywords_text)
             
         except Exception as e:
-            update.message.reply_text(f"❌ Սխալ: {str(e)}")
-        finally:
-            try:
-                loop.close()
-            except:
-                pass
+            await update.message.reply_text(f"❌ Սխալ: {str(e)}")
 
-    def handle_pause_command(self, update, context):
-        """Handle /pause command"""
+    async def handle_pause_command(self, update, context):
+        """Handle /pause command - Now async"""
         self.notifications_paused = True
-        update.message.reply_text("🔇 Ծանուցումները դադարեցվել են\n\nԱկտիվացնելու համար օգտագործեք /resume")
+        await update.message.reply_text("🔇 Ծանուցումները դադարեցվել են\n\nԱկտիվացնելու համար օգտագործեք /resume")
 
-    def handle_resume_command(self, update, context):
-        """Handle /resume command"""
+    async def handle_resume_command(self, update, context):
+        """Handle /resume command - Now async"""
         self.notifications_paused = False
-        update.message.reply_text("🔔 Ծանուցումները ակտիվացվել են")
+        await update.message.reply_text("🔔 Ծանուցումները ակտիվացվել են")
 
-    @sync_to_async
-    def add_keyword(self, keyword_text):
-        """Add keyword via API"""
+    async def add_keyword(self, keyword_text):
+        """Add keyword via API - Now fully async"""
         try:
-            # Try to add keyword via API
-            response = requests.post(
-                f"{API_BASE_URL}/api/keywords/",
-                json={'word': keyword_text},
-                timeout=10
-            )
-            if response.status_code == 201:
-                return response.json(), True
-            elif response.status_code == 200:
-                return response.json(), False  # Already exists
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{API_BASE_URL}/api/keywords/",
+                    json={'word': keyword_text},
+                    timeout=10
+                ) as response:
+                    if response.status == 201:
+                        return await response.json(), True
+                    elif response.status == 200:
+                        return await response.json(), False  # Already exists
         except Exception as e:
             logger.warning(f"API add keyword request failed: {e}")
         
         # Fallback to Django models if available
         try:
             from main.models import Keyword
-            return Keyword.objects.get_or_create(word=keyword_text)
+            
+            @sync_to_async
+            def add_django_keyword():
+                return Keyword.objects.get_or_create(word=keyword_text)
+            
+            return await add_django_keyword()
         except Exception as e:
             logger.error(f"Both API and Django models failed: {e}")
             return None, False
 
-    def handle_add_keyword_command(self, update, context):
-        """Handle /add_keyword command"""
+    async def handle_add_keyword_command(self, update, context):
+        """Handle /add_keyword command - Now fully async"""
         try:
             if not context.args:
-                update.message.reply_text("❌ Գրեք բանալի բառը\n\nՕրինակ: /add_keyword Հայաստան")
+                await update.message.reply_text("❌ Գրեք բանալի բառը\n\nՕրինակ: /add_keyword Հայաստան")
                 return
             
             keyword_text = " ".join(context.args).strip()
-            
-            # Run async function in sync context
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            keyword_obj, created = loop.run_until_complete(self.add_keyword(keyword_text))
+            keyword_obj, created = await self.add_keyword(keyword_text)
             
             if created:
-                update.message.reply_text(f"✅ Ավելացվել է բանալի բառ: {keyword_text}")
+                await update.message.reply_text(f"✅ Ավելացվել է բանալի բառ: {keyword_text}")
             else:
-                update.message.reply_text(f"🔄 Արդեն գոյություն ունի: {keyword_text}")
+                await update.message.reply_text(f"🔄 Արդեն գոյություն ունի: {keyword_text}")
                 
         except Exception as e:
-            update.message.reply_text(f"❌ Սխալ: {str(e)}")
-        finally:
-            try:
-                loop.close()
-            except:
-                pass
+            await update.message.reply_text(f"❌ Սխալ: {str(e)}")
 
-    @sync_to_async
-    def remove_keyword(self, keyword_text):
-        """Remove keyword via API"""
+    async def remove_keyword(self, keyword_text):
+        """Remove keyword via API - Now fully async"""
         try:
-            # Try to remove keyword via API
-            response = requests.delete(
-                f"{API_BASE_URL}/api/keywords/{keyword_text}/",
-                timeout=10
-            )
-            if response.status_code == 200:
-                result = response.json()
-                return result.get('deleted_count', 0)
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.delete(
+                    f"{API_BASE_URL}/api/keywords/{keyword_text}/",
+                    timeout=10
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        return result.get('deleted_count', 0)
         except Exception as e:
             logger.warning(f"API remove keyword request failed: {e}")
         
         # Fallback to Django models if available
         try:
             from main.models import Keyword
-            return Keyword.objects.filter(word=keyword_text).delete()[0]
+            
+            @sync_to_async
+            def remove_django_keyword():
+                return Keyword.objects.filter(word=keyword_text).delete()[0]
+            
+            return await remove_django_keyword()
         except Exception as e:
             logger.error(f"Both API and Django models failed: {e}")
             return 0
 
-    def handle_remove_keyword_command(self, update, context):
-        """Handle /remove_keyword command"""
+    async def handle_remove_keyword_command(self, update, context):
+        """Handle /remove_keyword command - Now fully async"""
         try:
             if not context.args:
-                update.message.reply_text("❌ Գրեք բանալի բառը\n\nՕրինակ: /remove_keyword Հայաստան")
+                await update.message.reply_text("❌ Գրեք բանալի բառը\n\nՕրինակ: /remove_keyword Հայաստան")
                 return
             
             keyword_text = " ".join(context.args).strip()
-            
-            # Run async function in sync context
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            deleted_count = loop.run_until_complete(self.remove_keyword(keyword_text))
+            deleted_count = await self.remove_keyword(keyword_text)
             
             if deleted_count > 0:
-                update.message.reply_text(f"🗑️ Ջնջվել է բանալի բառ: {keyword_text}")
+                await update.message.reply_text(f"🗑️ Ջնջվել է բանալի բառ: {keyword_text}")
             else:
-                update.message.reply_text(f"❌ Բանալի բառը չգտնվեց: {keyword_text}")
+                await update.message.reply_text(f"❌ Բանալի բառը չգտնվեց: {keyword_text}")
                 
         except Exception as e:
-            update.message.reply_text(f"❌ Սխալ: {str(e)}")
-        finally:
-            try:
-                loop.close()
-            except:
-                pass
+            await update.message.reply_text(f"❌ Սխալ: {str(e)}")
 
-    def handle_help_command(self, update, context):
-        """Handle /help command"""
+    async def handle_help_command(self, update, context):
+        """Handle /help command - Now async"""
         help_text = """🤖 Telegram բոտի հրամաններ:
 
 📊 /stats - վիճակագրություն
@@ -402,7 +395,7 @@ class TelegramNotifier:
 /add_keyword Հայաստան
 /remove_keyword տնտեսություն"""
 
-        update.message.reply_text(help_text)
+        await update.message.reply_text(help_text)
 
     def _extract_source_name(self, url):
         """Extract a readable source name from URL"""
@@ -471,21 +464,32 @@ class TelegramNotifier:
     def start_bot_server(self):
         """Start the Telegram bot server to handle commands"""
         try:
-            # Create updater for older python-telegram-bot version
+            # Use v13.x (sync) approach
             from telegram.ext import Updater, CommandHandler
             
             updater = Updater(token=self.bot_token, use_context=True)
             dispatcher = updater.dispatcher
             
-            # Add command handlers
-            dispatcher.add_handler(CommandHandler("stats", self.handle_stats_command))
-            dispatcher.add_handler(CommandHandler("keywords", self.handle_keywords_command))
-            dispatcher.add_handler(CommandHandler("pause", self.handle_pause_command))
-            dispatcher.add_handler(CommandHandler("resume", self.handle_resume_command))
-            dispatcher.add_handler(CommandHandler("add_keyword", self.handle_add_keyword_command))
-            dispatcher.add_handler(CommandHandler("remove_keyword", self.handle_remove_keyword_command))
-            dispatcher.add_handler(CommandHandler("help", self.handle_help_command))
-            dispatcher.add_handler(CommandHandler("start", self.handle_help_command))
+            # For v13.x, we need sync wrappers for async functions
+            def sync_wrapper(async_func):
+                def wrapper(update, context):
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(async_func(update, context))
+                    finally:
+                        loop.close()
+                return wrapper
+            
+            # Add command handlers with sync wrappers
+            dispatcher.add_handler(CommandHandler("stats", sync_wrapper(self.handle_stats_command)))
+            dispatcher.add_handler(CommandHandler("keywords", sync_wrapper(self.handle_keywords_command)))
+            dispatcher.add_handler(CommandHandler("pause", sync_wrapper(self.handle_pause_command)))
+            dispatcher.add_handler(CommandHandler("resume", sync_wrapper(self.handle_resume_command)))
+            dispatcher.add_handler(CommandHandler("add_keyword", sync_wrapper(self.handle_add_keyword_command)))
+            dispatcher.add_handler(CommandHandler("remove_keyword", sync_wrapper(self.handle_remove_keyword_command)))
+            dispatcher.add_handler(CommandHandler("help", sync_wrapper(self.handle_help_command)))
+            dispatcher.add_handler(CommandHandler("start", sync_wrapper(self.handle_help_command)))
             
             # Start the bot
             logger.info("🤖 Telegram բոտ սերվերը սկսվում է...")
@@ -493,4 +497,4 @@ class TelegramNotifier:
             updater.idle()
             
         except Exception as e:
-            logger.error(f"❌ Telegram բոտ սերվերի սխալ: {e}") 
+            logger.error(f"❌ Telegram բոտ սերվերի սխալ: {e}")

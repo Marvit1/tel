@@ -1,19 +1,18 @@
-# Python version for Render deployment
-# Use Python 3.10 to avoid imghdr module issues
-# runtime.txt: python-3.10.12
-
 # Django Framework (for models only)
 Django==4.2.7
 
 # PostgreSQL Database
 psycopg2-binary
 
-# Telegram Bot
+# Telegram Bot - Keep v13.15 to avoid compatibility issues
 python-telegram-bot==13.15
 
 # HTTP Requests for API calls
 requests
 
+# Async HTTP requests (for better performance)
+aiohttp
+
 # Additional Utilities
 python-dateutil
-pytz 
+pytz
