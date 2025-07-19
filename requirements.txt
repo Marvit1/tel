@@ -1,9 +1,3 @@
-# Django Framework (for models only)
-Django==4.2.7
-
-# PostgreSQL Database
-psycopg2-binary
-
 # Telegram Bot - Keep v13.15 to avoid compatibility issues
 python-telegram-bot==13.15
 

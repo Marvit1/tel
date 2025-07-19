@@ -9,57 +9,7 @@ if sys.version_info >= (3, 11):
 import asyncio
 import logging
 import os
-import sys
-import django
 from telegram import Bot, Update
-from django.utils import timezone
-from datetime import timedelta
-from asgiref.sync import sync_to_async
-
-# Setup Django environment - For Render deployment
-current_dir = os.path.dirname(os.path.abspath(__file__))
-
-# For Render deployment, we need to find the backend directory
-# Try different possible paths
-possible_backend_paths = [
-    os.path.join(current_dir, '..', 'backend'),  # ../backend
-    os.path.join(current_dir, '..', 'Scrap123', 'backend'),  # ../Scrap123/backend
-    os.path.join(current_dir, '..', '..', 'backend'),  # ../../backend
-]
-
-backend_path = None
-for path in possible_backend_paths:
-    if os.path.exists(path):
-        backend_path = os.path.abspath(path)
-        break
-
-# Log the paths for debugging
-logger = logging.getLogger(__name__)
-logger.info(f"Current directory: {current_dir}")
-
-if backend_path:
-    logger.info(f"Found backend path: {backend_path}")
-    if backend_path not in sys.path:
-        sys.path.insert(0, backend_path)
-        logger.info(f"Added {backend_path} to sys.path")
-else:
-    logger.warning("⚠️ Backend path not found locally - this is normal for Render deployment")
-    logger.info("Will use Django settings from environment variables")
-
-# Set Django settings module
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'beackkayq.settings')
-logger.info(f"Django settings module: {os.environ.get('DJANGO_SETTINGS_MODULE')}")
-
-try:
-    django.setup()
-    logger.info("✅ Django setup completed successfully")
-except Exception as e:
-    logger.error(f"❌ Django setup failed: {e}")
-    # For Render deployment, we might need to continue anyway
-    logger.warning("⚠️ Continuing without Django setup - will use API calls instead")
-    # Don't raise the exception for now
-
-from django.conf import settings
 import requests
 import json
 
@@ -70,13 +20,9 @@ API_BASE_URL = os.environ.get('DJANGO_API_URL', "https://beackkayq.onrender.com"
 
 class TelegramNotifier:
     def __init__(self):
-        # Get bot token and chat ID from environment variables or Django settings
-        try:
-            self.bot_token = os.environ.get('TELEGRAM_BOT_TOKEN') or settings.TELEGRAM_BOT_TOKEN
-            self.chat_id = os.environ.get('TELEGRAM_CHAT_ID') or settings.TELEGRAM_CHAT_ID
-        except:
-            self.bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-            self.chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+        # Get bot token and chat ID from environment variables
+        self.bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+        self.chat_id = os.environ.get('TELEGRAM_CHAT_ID')
         
         if not self.bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN is not set")
@@ -97,13 +43,13 @@ class TelegramNotifier:
             
         try:
             # Extract source name from URL
-            source_name = self._extract_source_name(article.source_url or article.link)
+            source_name = self._extract_source_name(article.get('source_url') or article.get('link'))
             
             # Format the message (plain text to avoid formatting issues)
             message = f"📰 Նոր հոդված\n\n"
             message += f"🌐 Կայք: {source_name}\n"
-            message += f"📰 Վերնագիր: {article.title}\n"
-            message += f"🔗 Հղում: {article.link}\n"
+            message += f"📰 Վերնագիր: {article.get('title')}\n"
+            message += f"🔗 Հղում: {article.get('link')}\n"
             
             if keywords and len(keywords) > 0:
                 keywords_text = ', '.join(keywords)
@@ -112,7 +58,14 @@ class TelegramNotifier:
             else:
                 logger.info("📤 Բանալի բառեր չկան")
             
-            message += f"⏰ Ժամանակ: {article.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+            # Handle created_at field - could be string or datetime
+            created_at = article.get('created_at')
+            if created_at:
+                if isinstance(created_at, str):
+                    time_str = created_at
+                else:
+                    time_str = created_at.strftime('%Y-%m-%d %H:%M:%S')
+                message += f"⏰ Ժամանակ: {time_str}"
             
             await self.bot.send_message(
                 chat_id=self.chat_id,
@@ -120,7 +73,7 @@ class TelegramNotifier:
                 disable_web_page_preview=False
             )
             
-            logger.info(f"✅ Telegram ծանուցումը ուղարկվեց: {article.title[:50]}...")
+            logger.info(f"✅ Telegram ծանուցումը ուղարկվեց: {article.get('title', '')[:50]}...")
             
         except Exception as e:
             logger.error(f"❌ Telegram ծանուցման սխալ: {e}")
@@ -128,78 +81,56 @@ class TelegramNotifier:
     async def get_stats_data(self):
         """Get statistics data via API - Now fully async"""
         try:
-            # Use aiohttp for async HTTP requests
             import aiohttp
             async with aiohttp.ClientSession() as session:
                 # Try to get stats from API
                 async with session.get(f"{API_BASE_URL}/api/stats/", timeout=10) as response:
                     if response.status == 200:
                         return await response.json()
-        except Exception as e:
-            logger.warning(f"API stats request failed: {e}")
-        
-        # Try to get stats from articles endpoint
-        try:
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"{API_BASE_URL}/api/articles/", timeout=10) as response:
-                    if response.status == 200:
-                        articles_data = await response.json()
-                        total_articles = len(articles_data) if isinstance(articles_data, list) else 0
-                        
-                        # Get keywords count
-                        async with session.get(f"{API_BASE_URL}/api/keywords/", timeout=10) as keywords_response:
-                            total_keywords = len(await keywords_response.json()) if keywords_response.status == 200 else 0
-                        
-                        return {
-                            'articles_24h': 0,  # We can't calculate this without timestamps
-                            'articles_week': 0,  # We can't calculate this without timestamps
-                            'total_articles': total_articles,
-                            'total_keywords': total_keywords,
-                            'top_sources': []
-                        }
-        except Exception as e:
-            logger.warning(f"API articles/keywords request failed: {e}")
-        
-        # Fallback to Django models if available
-        try:
-            from main.models import NewsArticle, Keyword
-            from django.db.models import Count
-            
-            # Use sync_to_async for Django ORM calls
-            @sync_to_async
-            def get_django_stats():
-                last_24h = timezone.now() - timedelta(hours=24)
-                last_week = timezone.now() - timedelta(days=7)
-                
-                articles_24h = NewsArticle.objects.filter(created_at__gte=last_24h).count()
-                articles_week = NewsArticle.objects.filter(created_at__gte=last_week).count()
-                total_articles = NewsArticle.objects.count()
-                total_keywords = Keyword.objects.count()
-                
-                # Get most active sources
-                top_sources = list(NewsArticle.objects.filter(created_at__gte=last_week)
-                                  .values('source_url')
-                                  .annotate(count=Count('id'))
-                                  .order_by('-count')[:5])
-                
+                    else:
+                        logger.error(f"Failed to get stats from /api/stats/: Status {response.status}")
+
+                # If /api/stats/ doesn't exist, try to gather from articles and keywords APIs
+                async with session.get(f"{API_BASE_URL}/api/articles/", timeout=10) as articles_response:
+                    articles_data = []
+                    if articles_response.status == 200:
+                        articles_data = await articles_response.json()
+                    else:
+                        logger.warning(f"Failed to get articles from /api/articles/: Status {articles_response.status}")
+
+                    total_articles = len(articles_data) if isinstance(articles_data, list) else 0
+
+                async with session.get(f"{API_BASE_URL}/api/keywords/", timeout=10) as keywords_response:
+                    total_keywords = 0
+                    if keywords_response.status == 200:
+                        keywords_list = await keywords_response.json()
+                        total_keywords = len(keywords_list) if isinstance(keywords_list, list) else 0
+                    else:
+                        logger.warning(f"Failed to get keywords from /api/keywords/: Status {keywords_response.status}")
+
+                # Note: For articles_24h, articles_week and top_sources calculation
+                # you'll need the /api/stats/ endpoint to provide this data,
+                # or you'll need to filter it from the complete data received from the API.
+                # Without timestamps, these will be 0 as they are now.
                 return {
-                    'articles_24h': articles_24h,
-                    'articles_week': articles_week,
+                    'articles_24h': 0,  # API needs to provide this
+                    'articles_week': 0,  # API needs to provide this
                     'total_articles': total_articles,
                     'total_keywords': total_keywords,
-                    'top_sources': top_sources
+                    'top_sources': []  # API needs to provide this
                 }
-            
-            return await get_django_stats()
-        except Exception as e:
-            logger.error(f"All methods failed: {e}")
+
+        except aiohttp.ClientError as e:
+            logger.error(f"API request failed with client error: {e}")
             return {
-                'articles_24h': 0,
-                'articles_week': 0,
-                'total_articles': 0,
-                'total_keywords': 0,
-                'top_sources': []
+                'articles_24h': 0, 'articles_week': 0, 'total_articles': 0,
+                'total_keywords': 0, 'top_sources': []
+            }
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during API stats request: {e}")
+            return {
+                'articles_24h': 0, 'articles_week': 0, 'total_articles': 0,
+                'total_keywords': 0, 'top_sources': []
             }
 
     async def handle_stats_command(self, update, context):
@@ -235,20 +166,14 @@ class TelegramNotifier:
                 async with session.get(f"{API_BASE_URL}/api/keywords/", timeout=10) as response:
                     if response.status == 200:
                         return await response.json()
+                    else:
+                        logger.error(f"Failed to get keywords from /api/keywords/: Status {response.status}")
+                        return []
+        except aiohttp.ClientError as e:
+            logger.error(f"API keywords request failed with client error: {e}")
+            return []
         except Exception as e:
-            logger.warning(f"API keywords request failed: {e}")
-        
-        # Fallback to Django models if available
-        try:
-            from main.models import Keyword
-            
-            @sync_to_async
-            def get_django_keywords():
-                return list(Keyword.objects.all())
-            
-            return await get_django_keywords()
-        except Exception as e:
-            logger.error(f"Both API and Django models failed: {e}")
+            logger.error(f"An unexpected error occurred during API keywords request: {e}")
             return []
 
     async def handle_keywords_command(self, update, context):
@@ -262,7 +187,11 @@ class TelegramNotifier:
             
             keywords_text = "🔑 Ընթացիկ բանալի բառեր:\n\n"
             for i, keyword in enumerate(keywords, 1):
-                keyword_text = keyword.word if hasattr(keyword, 'word') else keyword
+                # Handle both dictionary and object formats
+                if isinstance(keyword, dict):
+                    keyword_text = keyword.get('word', str(keyword))
+                else:
+                    keyword_text = keyword.word if hasattr(keyword, 'word') else str(keyword)
                 keywords_text += f"{i}. {keyword_text}\n"
             
             keywords_text += f"\n📝 Ընդհանուր: {len(keywords)} բանալի բառ"
@@ -296,20 +225,14 @@ class TelegramNotifier:
                         return await response.json(), True
                     elif response.status == 200:
                         return await response.json(), False  # Already exists
+                    else:
+                        logger.error(f"Failed to add keyword via API: Status {response.status}")
+                        return None, False
+        except aiohttp.ClientError as e:
+            logger.error(f"API add keyword request failed with client error: {e}")
+            return None, False
         except Exception as e:
-            logger.warning(f"API add keyword request failed: {e}")
-        
-        # Fallback to Django models if available
-        try:
-            from main.models import Keyword
-            
-            @sync_to_async
-            def add_django_keyword():
-                return Keyword.objects.get_or_create(word=keyword_text)
-            
-            return await add_django_keyword()
-        except Exception as e:
-            logger.error(f"Both API and Django models failed: {e}")
+            logger.error(f"An unexpected error occurred during API add keyword request: {e}")
             return None, False
 
     async def handle_add_keyword_command(self, update, context):
@@ -342,20 +265,14 @@ class TelegramNotifier:
                     if response.status == 200:
                         result = await response.json()
                         return result.get('deleted_count', 0)
+                    else:
+                        logger.error(f"Failed to remove keyword via API: Status {response.status}")
+                        return 0
+        except aiohttp.ClientError as e:
+            logger.error(f"API remove keyword request failed with client error: {e}")
+            return 0
         except Exception as e:
-            logger.warning(f"API remove keyword request failed: {e}")
-        
-        # Fallback to Django models if available
-        try:
-            from main.models import Keyword
-            
-            @sync_to_async
-            def remove_django_keyword():
-                return Keyword.objects.filter(word=keyword_text).delete()[0]
-            
-            return await remove_django_keyword()
-        except Exception as e:
-            logger.error(f"Both API and Django models failed: {e}")
+            logger.error(f"An unexpected error occurred during API remove keyword request: {e}")
             return 0
 
     async def handle_remove_keyword_command(self, update, context):
