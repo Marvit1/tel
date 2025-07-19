@@ -379,6 +379,7 @@ class TelegramNotifier:
     
     def send_article_sync(self, article, keywords=None):
         """Synchronous wrapper for sending article notifications"""
+        loop = None
         try:
             # Create new event loop for this thread
             loop = asyncio.new_event_loop()
@@ -390,10 +391,11 @@ class TelegramNotifier:
         except Exception as e:
             logger.error(f"❌ Telegram sync ծանուցման սխալ: {e}")
         finally:
-            try:
-                loop.close()
-            except:
-                pass
+            if loop and not loop.is_closed():
+                try:
+                    loop.close()
+                except Exception as close_error:
+                    logger.error(f"❌ Failed to close loop in send_article_sync: {close_error}")
 
     def start_bot_server(self):
         """Start the Telegram bot server to handle commands"""
@@ -407,12 +409,34 @@ class TelegramNotifier:
             # For v13.x, we need sync wrappers for async functions
             def sync_wrapper(async_func):
                 def wrapper(update, context):
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
+                    loop = None
                     try:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
                         loop.run_until_complete(async_func(update, context))
+                    except Exception as e:
+                        logger.error(f"❌ Handler error in {async_func.__name__}: {e}")
+                        # Try to send error message directly using sync method
+                        try:
+                            if update and update.message:
+                                chat_id = update.message.chat_id
+                                error_text = f"❌ Սխալ: {str(e)}"
+                                # Use sync method to avoid async issues
+                                import requests
+                                url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+                                data = {
+                                    'chat_id': chat_id,
+                                    'text': error_text
+                                }
+                                requests.post(url, data=data, timeout=5)
+                        except Exception as send_error:
+                            logger.error(f"❌ Failed to send error message: {send_error}")
                     finally:
-                        loop.close()
+                        if loop and not loop.is_closed():
+                            try:
+                                loop.close()
+                            except Exception as close_error:
+                                logger.error(f"❌ Failed to close loop: {close_error}")
                 return wrapper
             
             # Add command handlers with sync wrappers
