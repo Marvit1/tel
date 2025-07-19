@@ -23,11 +23,24 @@ class TelegramNotifier:
         # Get bot token and chat ID from environment variables
         self.bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
         self.chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+
+        # Ավելացրեք .strip() մեթոդը ցանկացած ավելորդ բացատներից ազատվելու համար
+        if self.bot_token:
+            self.bot_token = self.bot_token.strip()
+        if self.chat_id:
+            self.chat_id = self.chat_id.strip()
         
         if not self.bot_token:
+            # Սա կօգնի ավելի պարզ տեսնել, թե արդյոք թոքենը գոյություն ունի
+            logger.error("❌ TELEGRAM_BOT_TOKEN environment variable is not set or is empty.")
             raise ValueError("TELEGRAM_BOT_TOKEN is not set")
         if not self.chat_id:
+            logger.error("❌ TELEGRAM_CHAT_ID environment variable is not set or is empty.")
             raise ValueError("TELEGRAM_CHAT_ID is not set")
+            
+        # Ավելացրեք այս տողերը՝ թոքենը լոգերում տեսնելու համար (մասնակի, անվտանգության համար)
+        logger.info(f"✅ Bot Token loaded. Partial: {self.bot_token[:4]}...{self.bot_token[-4:]}")
+        logger.info(f"✅ Chat ID loaded: {self.chat_id}")
             
         self.bot = Bot(token=self.bot_token)
         
