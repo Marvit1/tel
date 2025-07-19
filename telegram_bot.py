@@ -166,10 +166,11 @@ class TelegramNotifier:
                 source_name = self._extract_source_name(source['source_url'])
                 stats_message += f"\n  • {source_name}: {source['count']} հոդված"
 
-            await update.message.reply_text(stats_message)
+            await self.bot.send_message(chat_id=update.message.chat_id, text=stats_message)
             
         except Exception as e:
-            await update.message.reply_text(f"❌ Սխալ: {str(e)}")
+            logger.error(f"❌ Սխալ: {e}")
+            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {str(e)}")
 
     async def get_keywords_data(self):
         """Get keywords data via API - Now fully async"""
@@ -195,7 +196,7 @@ class TelegramNotifier:
             keywords = await self.get_keywords_data()
             
             if not keywords:
-                await update.message.reply_text("❌ Բանալի բառեր չկան")
+                await self.bot.send_message(chat_id=update.message.chat_id, text="❌ Բանալի բառեր չկան")
                 return
             
             keywords_text = "🔑 Ընթացիկ բանալի բառեր:\n\n"
@@ -209,20 +210,21 @@ class TelegramNotifier:
             
             keywords_text += f"\n📝 Ընդհանուր: {len(keywords)} բանալի բառ"
             
-            await update.message.reply_text(keywords_text)
+            await self.bot.send_message(chat_id=update.message.chat_id, text=keywords_text)
             
         except Exception as e:
-            await update.message.reply_text(f"❌ Սխալ: {str(e)}")
+            logger.error(f"❌ Սխալ: {e}")
+            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {str(e)}")
 
     async def handle_pause_command(self, update, context):
         """Handle /pause command - Now async"""
         self.notifications_paused = True
-        await update.message.reply_text("🔇 Ծանուցումները դադարեցվել են\n\nԱկտիվացնելու համար օգտագործեք /resume")
+        await self.bot.send_message(chat_id=update.message.chat_id, text="🔇 Ծանուցումները դադարեցվել են\n\nԱկտիվացնելու համար օգտագործեք /resume")
 
     async def handle_resume_command(self, update, context):
         """Handle /resume command - Now async"""
         self.notifications_paused = False
-        await update.message.reply_text("🔔 Ծանուցումները ակտիվացվել են")
+        await self.bot.send_message(chat_id=update.message.chat_id, text="🔔 Ծանուցումները ակտիվացվել են")
 
     async def add_keyword(self, keyword_text):
         """Add keyword via API - Now fully async"""
@@ -252,19 +254,20 @@ class TelegramNotifier:
         """Handle /add_keyword command - Now fully async"""
         try:
             if not context.args:
-                await update.message.reply_text("❌ Գրեք բանալի բառը\n\nՕրինակ: /add_keyword Հայաստան")
+                await self.bot.send_message(chat_id=update.message.chat_id, text="❌ Գրեք բանալի բառը\n\nՕրինակ: /add_keyword Հայաստան")
                 return
             
             keyword_text = " ".join(context.args).strip()
             keyword_obj, created = await self.add_keyword(keyword_text)
             
             if created:
-                await update.message.reply_text(f"✅ Ավելացվել է բանալի բառ: {keyword_text}")
+                await self.bot.send_message(chat_id=update.message.chat_id, text=f"✅ Ավելացվել է բանալի բառ: {keyword_text}")
             else:
-                await update.message.reply_text(f"🔄 Արդեն գոյություն ունի: {keyword_text}")
+                await self.bot.send_message(chat_id=update.message.chat_id, text=f"🔄 Արդեն գոյություն ունի: {keyword_text}")
                 
         except Exception as e:
-            await update.message.reply_text(f"❌ Սխալ: {str(e)}")
+            logger.error(f"❌ Սխալ: {e}")
+            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {str(e)}")
 
     async def remove_keyword(self, keyword_text):
         """Remove keyword via API - Now fully async"""
@@ -292,19 +295,20 @@ class TelegramNotifier:
         """Handle /remove_keyword command - Now fully async"""
         try:
             if not context.args:
-                await update.message.reply_text("❌ Գրեք բանալի բառը\n\nՕրինակ: /remove_keyword Հայաստան")
+                await self.bot.send_message(chat_id=update.message.chat_id, text="❌ Գրեք բանալի բառը\n\nՕրինակ: /remove_keyword Հայաստան")
                 return
             
             keyword_text = " ".join(context.args).strip()
             deleted_count = await self.remove_keyword(keyword_text)
             
             if deleted_count > 0:
-                await update.message.reply_text(f"🗑️ Ջնջվել է բանալի բառ: {keyword_text}")
+                await self.bot.send_message(chat_id=update.message.chat_id, text=f"🗑️ Ջնջվել է բանալի բառ: {keyword_text}")
             else:
-                await update.message.reply_text(f"❌ Բանալի բառը չգտնվեց: {keyword_text}")
+                await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Բանալի բառը չգտնվեց: {keyword_text}")
                 
         except Exception as e:
-            await update.message.reply_text(f"❌ Սխալ: {str(e)}")
+            logger.error(f"❌ Սխալ: {e}")
+            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {str(e)}")
 
     async def handle_help_command(self, update, context):
         """Handle /help command - Now async"""
@@ -325,7 +329,7 @@ class TelegramNotifier:
 /add_keyword Հայաստան
 /remove_keyword տնտեսություն"""
 
-        await update.message.reply_text(help_text)
+        await self.bot.send_message(chat_id=update.message.chat_id, text=help_text)
 
     def _extract_source_name(self, url):
         """Extract a readable source name from URL"""
