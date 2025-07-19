@@ -439,20 +439,37 @@ class TelegramNotifier:
                         asyncio.set_event_loop(loop)
                         loop.run_until_complete(async_func(update, context))
                     except Exception as e:
-                        # Safe error message formatting
-                        try:
-                            error_msg = str(e)
-                        except:
-                            error_msg = "Unknown error occurred"
+                        # Միշտ լոգավորեք ամբողջական սխալը՝ հետագա վերլուծության համար
+                        # exc_info=True-ը կապահովի ամբողջական հետագծի տպումը լոգերում
+                        logger.error(f"❌ Handler error in {async_func.__name__}: {e}", exc_info=True)
                         
-                        logger.error(f"❌ Handler error in {async_func.__name__}: {error_msg}")
-                        # Don't try to send error message from sync wrapper to avoid Message object issues
+                        # Փորձեք ուղարկել ընդհանուր սխալի հաղորդագրություն օգտատիրոջը
+                        try:
+                            if update and update.message:
+                                chat_id = update.message.chat_id
+                                # Ավելի ընդհանուր, կայուն հաղորդագրություն օգտատիրոջ համար
+                                # Մենք ԱՅԼԵՎՍ ՉԵՆՔ օգտագործում str(e)-ը այստեղ,
+                                # որպեսզի խուսափենք հենց այդ Message օբյեկտի սխալից
+                                user_error_text = "❌ Ծանր սխալ տեղի ունեցավ հրամանը մշակելիս։ Խնդրում ենք փորձել կրկին կամ կապվել ադմինիստրատորի հետ։"
+                                
+                                # Ուղարկեք հաղորդագրությունը սինխրոն requests-ի միջոցով
+                                # (համոզվեք, որ 'import requests' տողը գտնվում է ֆայլի ամենասկզբում)
+                                url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+                                data = {
+                                    'chat_id': chat_id,
+                                    'text': user_error_text
+                                }
+                                requests.post(url, data=data, timeout=5)
+                            else:
+                                logger.warning("Could not send error message: update or update.message is missing.")
+                        except Exception as send_error:
+                            logger.error(f"❌ Failed to send error message to user: {send_error}")
                     finally:
                         if loop and not loop.is_closed():
                             try:
                                 loop.close()
                             except Exception as close_error:
-                                logger.error(f"❌ Failed to close loop: {close_error}")
+                                logger.error(f"❌ Failed to close loop in handler wrapper: {close_error}")
                 return wrapper
             
             # Add command handlers with sync wrappers
