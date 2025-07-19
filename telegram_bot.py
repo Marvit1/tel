@@ -176,7 +176,7 @@ class TelegramNotifier:
                 error_msg = "Unknown error occurred"
             
             logger.error(f"❌ Սխալ: {error_msg}")
-            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {error_msg}")
+            # Don't try to send error message to avoid Message object issues
 
     async def get_keywords_data(self):
         """Get keywords data via API - Now fully async"""
@@ -226,7 +226,7 @@ class TelegramNotifier:
                 error_msg = "Unknown error occurred"
             
             logger.error(f"❌ Սխալ: {error_msg}")
-            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {error_msg}")
+            # Don't try to send error message to avoid Message object issues
 
     async def handle_pause_command(self, update, context):
         """Handle /pause command - Now async"""
@@ -285,7 +285,7 @@ class TelegramNotifier:
                 error_msg = "Unknown error occurred"
             
             logger.error(f"❌ Սխալ: {error_msg}")
-            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {error_msg}")
+            # Don't try to send error message to avoid Message object issues
 
     async def remove_keyword(self, keyword_text):
         """Remove keyword via API - Now fully async"""
@@ -332,7 +332,7 @@ class TelegramNotifier:
                 error_msg = "Unknown error occurred"
             
             logger.error(f"❌ Սխալ: {error_msg}")
-            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {error_msg}")
+            # Don't try to send error message to avoid Message object issues
 
     async def handle_help_command(self, update, context):
         """Handle /help command - Now async"""
