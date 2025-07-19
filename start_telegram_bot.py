@@ -26,7 +26,13 @@ def main():
     except KeyboardInterrupt:
         logger.info("🛑 Telegram բոտը կանգնեցված է")
     except Exception as e:
-        logger.error(f"❌ Սխալ: {e}")
+        # Safe error message formatting
+        try:
+            error_msg = str(e)
+        except:
+            error_msg = "Unknown error occurred"
+        
+        logger.error(f"❌ Սխալ: {error_msg}")
 
 if __name__ == '__main__':
     main() 

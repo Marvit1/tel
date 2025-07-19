@@ -169,8 +169,14 @@ class TelegramNotifier:
             await self.bot.send_message(chat_id=update.message.chat_id, text=stats_message)
             
         except Exception as e:
-            logger.error(f"❌ Սխալ: {e}")
-            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {str(e)}")
+            # Safe error message formatting
+            try:
+                error_msg = str(e)
+            except:
+                error_msg = "Unknown error occurred"
+            
+            logger.error(f"❌ Սխալ: {error_msg}")
+            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {error_msg}")
 
     async def get_keywords_data(self):
         """Get keywords data via API - Now fully async"""
@@ -213,8 +219,14 @@ class TelegramNotifier:
             await self.bot.send_message(chat_id=update.message.chat_id, text=keywords_text)
             
         except Exception as e:
-            logger.error(f"❌ Սխալ: {e}")
-            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {str(e)}")
+            # Safe error message formatting
+            try:
+                error_msg = str(e)
+            except:
+                error_msg = "Unknown error occurred"
+            
+            logger.error(f"❌ Սխալ: {error_msg}")
+            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {error_msg}")
 
     async def handle_pause_command(self, update, context):
         """Handle /pause command - Now async"""
@@ -266,8 +278,14 @@ class TelegramNotifier:
                 await self.bot.send_message(chat_id=update.message.chat_id, text=f"🔄 Արդեն գոյություն ունի: {keyword_text}")
                 
         except Exception as e:
-            logger.error(f"❌ Սխալ: {e}")
-            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {str(e)}")
+            # Safe error message formatting
+            try:
+                error_msg = str(e)
+            except:
+                error_msg = "Unknown error occurred"
+            
+            logger.error(f"❌ Սխալ: {error_msg}")
+            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {error_msg}")
 
     async def remove_keyword(self, keyword_text):
         """Remove keyword via API - Now fully async"""
@@ -307,8 +325,14 @@ class TelegramNotifier:
                 await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Բանալի բառը չգտնվեց: {keyword_text}")
                 
         except Exception as e:
-            logger.error(f"❌ Սխալ: {e}")
-            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {str(e)}")
+            # Safe error message formatting
+            try:
+                error_msg = str(e)
+            except:
+                error_msg = "Unknown error occurred"
+            
+            logger.error(f"❌ Սխալ: {error_msg}")
+            await self.bot.send_message(chat_id=update.message.chat_id, text=f"❌ Սխալ: {error_msg}")
 
     async def handle_help_command(self, update, context):
         """Handle /help command - Now async"""
@@ -415,22 +439,14 @@ class TelegramNotifier:
                         asyncio.set_event_loop(loop)
                         loop.run_until_complete(async_func(update, context))
                     except Exception as e:
-                        logger.error(f"❌ Handler error in {async_func.__name__}: {e}")
-                        # Try to send error message directly using sync method
+                        # Safe error message formatting
                         try:
-                            if update and update.message:
-                                chat_id = update.message.chat_id
-                                error_text = f"❌ Սխալ: {str(e)}"
-                                # Use sync method to avoid async issues
-                                import requests
-                                url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-                                data = {
-                                    'chat_id': chat_id,
-                                    'text': error_text
-                                }
-                                requests.post(url, data=data, timeout=5)
-                        except Exception as send_error:
-                            logger.error(f"❌ Failed to send error message: {send_error}")
+                            error_msg = str(e)
+                        except:
+                            error_msg = "Unknown error occurred"
+                        
+                        logger.error(f"❌ Handler error in {async_func.__name__}: {error_msg}")
+                        # Don't try to send error message from sync wrapper to avoid Message object issues
                     finally:
                         if loop and not loop.is_closed():
                             try:
