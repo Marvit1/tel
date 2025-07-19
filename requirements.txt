@@ -16,3 +16,5 @@ aiohttp
 # Additional Utilities
 python-dateutil
 pytz
+
+urllib3==1.26.18 
